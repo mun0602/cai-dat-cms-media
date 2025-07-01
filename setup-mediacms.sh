@@ -76,11 +76,6 @@ echo ""
 read -p "Tiếp tục? (y/n): " confirm
 [ "$confirm" != "y" ] && exit 0
 
-# Cập nhật hệ thống
-print_info "Đang cập nhật hệ thống..."
-apt update && apt upgrade -y
-print_success "Hệ thống đã được cập nhật"
-
 # Cài đặt dependencies cơ bản
 print_info "Đang cài đặt dependencies..."
 apt install -y git curl wget nano
@@ -120,6 +115,8 @@ cd /home/mediacms.io/mediacms/
 source /home/mediacms.io/bin/activate
 
 # Tạo backup của local_settings.py
+cp cms/local_settings.py cms/local_settings.py.backup
+
 # Cập nhật cấu hình với domain
 print_info "Cập nhật cấu hình domain..."
 cat >> cms/local_settings.py << EOF
