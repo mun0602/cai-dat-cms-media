@@ -288,4 +288,145 @@ echo "2. Cấu hình email SMTP trong local_settings.py"
 echo "3. Kiểm tra firewall (port 80, 443)"
 echo "4. Backup file: /home/mediacms.io/mediacms/cms/local_settings.py"
 echo ""
-print_success "Chúc huynh dùng vui vẻ! 😄"
+# Menu tùy chọn sau cài đặt
+post_install_menu() {
+    echo ""
+    echo "========================================"
+    echo "  Menu Tùy Chỉnh MediaCMS"
+    echo "========================================"
+    echo "1. Khóa/Mở đăng ký tài khoản"
+    echo "2. Thay đổi mật khẩu admin"
+    echo "3. Tạo user mới"
+    echo "4. Xem danh sách users"
+    echo "5. Thoát"
+    echo "========================================"
+}
+
+# Function xử lý từng lựa chọn
+handle_menu_choice() {
+    cd /home/mediacms.io/mediacms/
+    source /home/mediacms.io/bin/activate
+    
+    case $1 in
+        1)
+            echo ""
+            echo "Trạng thái đăng ký hiện tại:"
+            python manage.py shell -c "
+from cms.local_settings import USERS_CAN_SELF_REGISTER
+print('Cho phép đăng ký:', USERS_CAN_SELF_REGISTER)
+" 2>/dev/null || echo "Hiện tại: Cho phép đăng ký"
+            
+            echo ""
+            read -p "Khóa đăng ký? (y/N): " lock_register
+            
+            if [[ "$lock_register" =~ ^[Yy]$ ]]; then
+                # Xóa dòng cũ nếu có và thêm dòng mới
+                sed -i '/USERS_CAN_SELF_REGISTER/d' cms/local_settings.py
+                echo "USERS_CAN_SELF_REGISTER = False" >> cms/local_settings.py
+                print_success "Đã khóa đăng ký tài khoản"
+            else
+                sed -i '/USERS_CAN_SELF_REGISTER/d' cms/local_settings.py
+                echo "USERS_CAN_SELF_REGISTER = True" >> cms/local_settings.py
+                print_success "Đã mở đăng ký tài khoản"
+            fi
+            
+            systemctl restart mediacms
+            print_info "Đã restart MediaCMS"
+            ;;
+        2)
+            echo ""
+            read -p "Username cần đổi password: " username
+            
+            if [ -z "$username" ]; then
+                print_error "Vui lòng nhập username"
+                return
+            fi
+            
+            # Kiểm tra user có tồn tại không
+            user_exists=$(python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+print(User.objects.filter(username='$username').exists())
+" 2>/dev/null)
+            
+            if [[ "$user_exists" == *"True"* ]]; then
+                python manage.py changepassword "$username"
+                print_success "Đã đổi password cho $username"
+            else
+                print_error "User '$username' không tồn tại"
+            fi
+            ;;
+        3)
+            echo ""
+            read -p "Username mới: " new_username
+            read -p "Email: " new_email
+            read -p "Là superuser? (y/N): " is_superuser
+            read -s -p "Password: " new_password
+            echo ""
+            
+            if [ -z "$new_username" ] || [ -z "$new_email" ] || [ -z "$new_password" ]; then
+                print_error "Vui lòng nhập đầy đủ thông tin"
+                return
+            fi
+            
+            if [[ "$is_superuser" =~ ^[Yy]$ ]]; then
+                python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+if not User.objects.filter(username='$new_username').exists():
+    User.objects.create_superuser('$new_username', '$new_email', '$new_password')
+    print('Superuser created successfully')
+else:
+    print('User already exists')
+"
+                print_success "Đã tạo superuser '$new_username'"
+            else
+                python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+if not User.objects.filter(username='$new_username').exists():
+    User.objects.create_user('$new_username', '$new_email', '$new_password')
+    print('User created successfully')
+else:
+    print('User already exists')
+"
+                print_success "Đã tạo user '$new_username'"
+            fi
+            ;;
+        4)
+            echo ""
+            print_info "Danh sách users trong hệ thống:"
+            python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+users = User.objects.all()
+for user in users:
+    status = 'Superuser' if user.is_superuser else 'User'
+    active = 'Active' if user.is_active else 'Inactive'
+    print(f'- {user.username} ({user.email}) - {status} - {active}')
+"
+            ;;
+        5)
+            print_success "Thoát menu. Chúc huynh dùng vui vẻ! 😄"
+            return 1
+            ;;
+        *)
+            print_error "Lựa chọn không hợp lệ"
+            ;;
+    esac
+    return 0
+}
+
+# Chạy menu post-install
+print_info "Khởi chạy menu tùy chỉnh..."
+while true; do
+    post_install_menu
+    read -p "Chọn (1-5): " choice
+    
+    if ! handle_menu_choice "$choice"; then
+        break
+    fi
+    
+    echo ""
+    read -p "Nhấn Enter để tiếp tục..." dummy
+done
